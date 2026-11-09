@@ -57,10 +57,23 @@ export function deriveAuthCookiePrefix(instanceId = resolvePaperclipInstanceId()
   return `paperclip-${scopedInstanceId}`;
 }
 
-export function buildBetterAuthAdvancedOptions(input: { disableSecureCookies: boolean }) {
+/**
+ * Opt-in: lets the board sign-in survive inside a cross-site iframe (a host app
+ * embedding Paperclip). Cookies become `SameSite=None; Secure; Partitioned`, so
+ * browsers keep them in a jar keyed to the embedding site (CHIPS), not one that
+ * follows the user across sites. Ignored over plain http, where `Secure` cannot hold.
+ */
+export function shouldUseEmbeddedAuthCookies(value = process.env.PAPERCLIP_AUTH_EMBEDDED_COOKIES): boolean {
+  return value?.trim().toLowerCase() === "true";
+}
+
+export function buildBetterAuthAdvancedOptions(input: { disableSecureCookies: boolean; embeddedCookies?: boolean }) {
   return {
     cookiePrefix: deriveAuthCookiePrefix(),
     ...(input.disableSecureCookies ? { useSecureCookies: false } : {}),
+    ...(input.embeddedCookies && !input.disableSecureCookies
+      ? { defaultCookieAttributes: { sameSite: "none" as const, secure: true, partitioned: true } }
+      : {}),
   };
 }
 
@@ -280,7 +293,7 @@ export function createBetterAuthInstance(db: Db, config: Config, trustedOrigins:
       deploymentExposure: config.deploymentExposure,
       override: process.env.PAPERCLIP_AUTH_RATE_LIMIT_ENABLED,
     }),
-    advanced: buildBetterAuthAdvancedOptions({ disableSecureCookies }),
+    advanced: buildBetterAuthAdvancedOptions({ disableSecureCookies, embeddedCookies: shouldUseEmbeddedAuthCookies() }),
     // Registered only for a managed workspace instance: the plugin is what makes
     // `Open workspace` password-independent, and a control-plane instance that
     // was never handed a workspace key must not expose the exchange at all.

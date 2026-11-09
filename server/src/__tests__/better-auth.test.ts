@@ -7,6 +7,7 @@ import {
   deriveAuthCookiePrefix,
   deriveAuthTrustedOrigins,
   shouldDisableSecureAuthCookies,
+  shouldUseEmbeddedAuthCookies,
 } from "../auth/better-auth.js";
 
 const ORIGINAL_INSTANCE_ID = process.env.PAPERCLIP_INSTANCE_ID;
@@ -36,6 +37,29 @@ describe("Better Auth cookie scoping", () => {
     expect(getCookies({ advanced } as BetterAuthOptions).sessionToken.name).toMatch(
       /paperclip-sat-worktree\.session_token$/,
     );
+  });
+
+  it("marks auth cookies for cross-site embedding only when opted in over https", () => {
+    process.env.PAPERCLIP_INSTANCE_ID = "embed";
+
+    const advanced = buildBetterAuthAdvancedOptions({ disableSecureCookies: false, embeddedCookies: true });
+    expect(advanced).toEqual({
+      cookiePrefix: "paperclip-embed",
+      defaultCookieAttributes: { sameSite: "none", secure: true, partitioned: true },
+    });
+    const session = getCookies({ advanced } as BetterAuthOptions).sessionToken;
+    expect(session.attributes).toMatchObject({ sameSite: "none", secure: true, partitioned: true, httpOnly: true });
+    expect(buildBetterAuthAdvancedOptions({ disableSecureCookies: true, embeddedCookies: true })).toEqual({
+      cookiePrefix: "paperclip-embed",
+      useSecureCookies: false,
+    });
+    expect(buildBetterAuthAdvancedOptions({ disableSecureCookies: false })).toEqual({ cookiePrefix: "paperclip-embed" });
+  });
+
+  it("reads the embedded-cookie opt-in strictly", () => {
+    expect(shouldUseEmbeddedAuthCookies("true")).toBe(true);
+    expect(shouldUseEmbeddedAuthCookies(" TRUE ")).toBe(true);
+    for (const value of [undefined, "", "false", "1", "yes"]) expect(shouldUseEmbeddedAuthCookies(value)).toBe(false);
   });
 
   it("keeps local http auth cookies non-secure while preserving the scoped prefix", () => {
